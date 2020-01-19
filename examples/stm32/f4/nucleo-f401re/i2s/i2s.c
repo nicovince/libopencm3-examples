@@ -46,18 +46,38 @@ static void i2s_clock_setup(void)
 	 * CK: Serial Clock on SCK pin
 	 * ext_SD: control i2s full duplex on MISO
 	 * MCK: Master Clock when i2s configured in master to output clock
+	 * I2S3
+	 * I2S3_SD: PC12 (AF06)
+	 * I2S3ext_SD: PC11 (AF05)
+	 * I2S3_CK: PC10 (AF06)
+	 * I2S3_WS: PA4 (AF06)
+	 *
+	 * I2S2
+	 * I2S2_SD: PB15 (AF05)
+	 * I2S2ext_SD: PB14 (AF06)
+	 * I2S2_CK: PB13 (AF05)
+	 * I2S2_WS: PB12 (AF05)
 	 */
-	//I2S3
-	//I2S3_SD: PC12 (AF06)
-	//I2S3ext_SD: PC11 (AF05)
-	//I2S3_CK: PC10 (AF06)
-	//I2S3_WS: PA4 (AF06)
-	//
-	//I2S2
-	//I2S2_SD: PB15 (AF05)
-	//I2S2ext_SD: PB14 (AF06)
-	//I2S2_CK: PB13 (AF05)
-	//I2S2_WS: PB12/PB9 (AF05)
+	/* Enable GPIOS ports whose pins we are using */
+	rcc_periph_clock_enable(RCC_GPIOA | RCC_GPIOC | RCC_GPIOB);
+
+	/* I2S3 */
+	gpio_mode_setup(GPIOC, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN,
+	                GPIO10 | GPIO11 | GPIO12);
+	gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN, GPIO4);
+	gpio_set_af(GPIOC, GPIO_AF6, GPIO12 | GPIO10);
+	gpio_set_af(GPIOC, GPIO_AF5, GPIO11);
+	gpio_set_af(GPIOA, GPIO_AF6, GPIO4);
+	//TODO: gpio_set_output_options(port, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ, gpios);
+	rcc_periph_clock_enable(RCC_SPI3);
+
+	/* I2S2 */
+	gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN,
+	                GPIO12 | GPIO13 | GPIO14 | GPIO15);
+	gpio_set_af(GPIOB, GPIO_AF5, GPIO12 | GPIO13 | GPIO15);
+	gpio_set_af(GPIOB, GPIO_AF6, GPIO14);
+	//TODO: gpio_set_output_options(port, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ, gpios);
+	rcc_periph_clock_enable(RCC_SPI2);
 }
 
 int main(void)
