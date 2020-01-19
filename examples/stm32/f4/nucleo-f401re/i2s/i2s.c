@@ -48,15 +48,16 @@ static void i2s_clock_setup(void)
 	 * MCK: Master Clock when i2s configured in master to output clock
 	 */
 	//I2S3
-	//PC7
-	//PC10
-	//PC11
-	//PC12
+	//I2S3_SD: PC12 (AF06)
+	//I2S3ext_SD: PC11 (AF05)
+	//I2S3_CK: PC10 (AF06)
+	//I2S3_WS: PA4 (AF06)
 	//
 	//I2S2
-	//PC2
-	//PC3
-	//PC6
+	//I2S2_SD: PB15 (AF05)
+	//I2S2ext_SD: PB14 (AF06)
+	//I2S2_CK: PB13 (AF05)
+	//I2S2_WS: PB12/PB9 (AF05)
 }
 
 int main(void)
@@ -65,6 +66,8 @@ int main(void)
 	gpio_setup();
 	clock_setup();
 	console_setup(115200);
+
+	i2s_clock_setup();
 
 	/* Blink the LED on the board and print message. */
 	while (1) {
