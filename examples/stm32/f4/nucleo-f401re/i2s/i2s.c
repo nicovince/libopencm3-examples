@@ -77,14 +77,14 @@ static void i2s_setup(void)
 	//TODO: gpio_set_output_options(port, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ, gpios);
 	rcc_periph_clock_enable(RCC_SPI3);
 
-    /* configure PLLI2S */
-    cr_temp = ((plli2sn & RCC_PLLI2SCFGR_PLLI2SN_MASK) << RCC_PLLI2SCFGR_PLLI2SN_SHIFT
-               | (plli2sr & RCC_PLLI2SCFGR_PLLI2SR_MASK) << RCC_PLLI2SCFGR_PLLI2SR_SHIFT);
-    RCC_PLLI2SCFGR = cr_temp;
-    RCC_CR |= RCC_CR_PLLI2SON;
-    while (!(RCC_CR & RCC_CR_PLLI2SRDY));
+	/* configure PLLI2S */
+	cr_temp = ((plli2sn & RCC_PLLI2SCFGR_PLLI2SN_MASK) << RCC_PLLI2SCFGR_PLLI2SN_SHIFT
+	           | (plli2sr & RCC_PLLI2SCFGR_PLLI2SR_MASK) << RCC_PLLI2SCFGR_PLLI2SR_SHIFT);
+	RCC_PLLI2SCFGR = cr_temp;
+	RCC_CR |= RCC_CR_PLLI2SON;
+	while (!(RCC_CR & RCC_CR_PLLI2SRDY));
 
-    RCC_CFGR &= ~RCC_CFGR_I2SSRC;
+	RCC_CFGR &= ~RCC_CFGR_I2SSRC;
 
 
 	/* I2S2 */
@@ -92,22 +92,22 @@ static void i2s_setup(void)
 	                GPIO12 | GPIO13 | GPIO14 | GPIO15);
 	gpio_set_af(GPIOB, GPIO_AF5, GPIO12 | GPIO13 | GPIO15);
 	gpio_set_af(GPIOB, GPIO_AF6, GPIO14);
-    /* I2S2 as master */
+	/* I2S2 as master */
 	gpio_set_output_options(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ, GPIO12 | GPIO13);
 	rcc_periph_clock_enable(RCC_SPI2);
 
-    cr_temp = (i2sdiv & 0xFF) | SPI_I2SPR_ODD;
-    SPI_I2SPR(SPI2) = cr_temp;
-    cr_temp = SPI_I2SCFGR_I2SMOD |
-        SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED |
-        SPI_I2SCFGR_DATLEN_16BIT |
-        SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT;
-    SPI_I2SCFGR(SPI2) = cr_temp;
-    cr_temp = SPI_CR2_RXNEIE |
-        SPI_CR2_RXNEIE |
-        SPI_CR2_ERRIE;
-    SPI_CR2(SPI2) = cr_temp;
-    SPI_I2SCFGR(SPI2) = SPI_I2SCFGR_I2SE; /* enable I2S after configuration */
+	cr_temp = (i2sdiv & 0xFF) | SPI_I2SPR_ODD;
+	SPI_I2SPR(SPI2) = cr_temp;
+	cr_temp = SPI_I2SCFGR_I2SMOD |
+		SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED |
+		SPI_I2SCFGR_DATLEN_16BIT |
+		SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT;
+	SPI_I2SCFGR(SPI2) = cr_temp;
+	cr_temp = SPI_CR2_RXNEIE |
+		SPI_CR2_RXNEIE |
+		SPI_CR2_ERRIE;
+	SPI_CR2(SPI2) = cr_temp;
+	SPI_I2SCFGR(SPI2) = SPI_I2SCFGR_I2SE; /* enable I2S after configuration */
 }
 
 int main(void)
