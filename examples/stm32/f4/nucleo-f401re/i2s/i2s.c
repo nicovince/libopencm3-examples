@@ -21,6 +21,7 @@
 
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
+#include <libopencm3/stm32/spi.h>
 
 #include "clock.h"
 #include "console.h"
@@ -39,8 +40,13 @@ static void gpio_setup(void)
 
 }
 
-static void i2s_clock_setup(void)
+static void i2s_setup(void)
 {
+    uint32_t cr_temp;
+    const uint32_t i2sdiv = 187;
+    uint32_t plli2sn = 192;
+    uint32_t  plli2sr = 2;
+
 	/* WS: Word select on NSS pin
 	 * SD: Serial Data on MOSI pin
 	 * CK: Serial Clock on SCK pin
@@ -71,13 +77,37 @@ static void i2s_clock_setup(void)
 	//TODO: gpio_set_output_options(port, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ, gpios);
 	rcc_periph_clock_enable(RCC_SPI3);
 
+    /* configure PLLI2S */
+    cr_temp = ((plli2sn & RCC_PLLI2SCFGR_PLLI2SN_MASK) << RCC_PLLI2SCFGR_PLLI2SN_SHIFT
+               | (plli2sr & RCC_PLLI2SCFGR_PLLI2SR_MASK) << RCC_PLLI2SCFGR_PLLI2SR_SHIFT);
+    RCC_PLLI2SCFGR = cr_temp;
+    RCC_CR |= RCC_CR_PLLI2SON;
+    while (!(RCC_CR & RCC_CR_PLLI2SRDY));
+
+    RCC_CFGR &= ~RCC_CFGR_I2SSRC;
+
+
 	/* I2S2 */
 	gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN,
 	                GPIO12 | GPIO13 | GPIO14 | GPIO15);
 	gpio_set_af(GPIOB, GPIO_AF5, GPIO12 | GPIO13 | GPIO15);
 	gpio_set_af(GPIOB, GPIO_AF6, GPIO14);
-	//TODO: gpio_set_output_options(port, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ, gpios);
+    /* I2S2 as master */
+	gpio_set_output_options(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ, GPIO12 | GPIO13);
 	rcc_periph_clock_enable(RCC_SPI2);
+
+    cr_temp = (i2sdiv & 0xFF) | SPI_I2SPR_ODD;
+    SPI_I2SPR(SPI2) = cr_temp;
+    cr_temp = SPI_I2SCFGR_I2SMOD |
+        SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED |
+        SPI_I2SCFGR_DATLEN_16BIT |
+        SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT;
+    SPI_I2SCFGR(SPI2) = cr_temp;
+    cr_temp = SPI_CR2_RXNEIE |
+        SPI_CR2_RXNEIE |
+        SPI_CR2_ERRIE;
+    SPI_CR2(SPI2) = cr_temp;
+    SPI_I2SCFGR(SPI2) = SPI_I2SCFGR_I2SE; /* enable I2S after configuration */
 }
 
 int main(void)
@@ -87,7 +117,7 @@ int main(void)
 	clock_setup();
 	console_setup(115200);
 
-	i2s_clock_setup();
+	i2s_setup();
 
 	/* Blink the LED on the board and print message. */
 	while (1) {
