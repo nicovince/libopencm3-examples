@@ -65,7 +65,9 @@ static void i2s_setup(void)
 	 * I2S2_WS: PB12 (AF05)
 	 */
 	/* Enable GPIOS ports whose pins we are using */
-	rcc_periph_clock_enable(RCC_GPIOA | RCC_GPIOC | RCC_GPIOB);
+	rcc_periph_clock_enable(RCC_GPIOA);
+	rcc_periph_clock_enable(RCC_GPIOC);
+	rcc_periph_clock_enable(RCC_GPIOB);
 
 	/* I2S3 */
 	gpio_mode_setup(GPIOC, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN,
@@ -93,25 +95,38 @@ static void i2s_setup(void)
 	gpio_set_af(GPIOB, GPIO_AF5, GPIO12 | GPIO13 | GPIO15);
 	gpio_set_af(GPIOB, GPIO_AF6, GPIO14);
 	/* I2S2 as master */
-	gpio_set_output_options(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ, GPIO12 | GPIO13);
+	gpio_set_output_options(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ,
+	                        GPIO12 | GPIO13 | GPIO15);
 	rcc_periph_clock_enable(RCC_SPI2);
 
 	cr_temp = (i2sdiv & 0xFF) | SPI_I2SPR_ODD;
 	SPI_I2SPR(SPI2) = cr_temp;
+	SPI_I2SPR(I2S2_EXT_BASE) = cr_temp;
 	cr_temp = SPI_I2SCFGR_I2SMOD |
-		SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED |
-		SPI_I2SCFGR_DATLEN_16BIT |
-		SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT;
+		(SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED << SPI_I2SCFGR_I2SSTD_LSB) |
+		(SPI_I2SCFGR_DATLEN_16BIT << SPI_I2SCFGR_DATLEN_LSB) |
+		(SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT << SPI_I2SCFGR_I2SCFG_LSB);
 	SPI_I2SCFGR(SPI2) = cr_temp;
+	SPI_I2SCFGR(I2S2_EXT_BASE) = cr_temp;
 	cr_temp = SPI_CR2_RXNEIE |
-		SPI_CR2_RXNEIE |
+		SPI_CR2_TXEIE |
 		SPI_CR2_ERRIE;
 	SPI_CR2(SPI2) = cr_temp;
-	SPI_I2SCFGR(SPI2) = SPI_I2SCFGR_I2SE; /* enable I2S after configuration */
+	SPI_CR2(I2S2_EXT_BASE) = cr_temp;
+	SPI_I2SCFGR(SPI2) |= SPI_I2SCFGR_I2SE; /* enable I2S after configuration */
+	SPI_I2SCFGR(I2S2_EXT_BASE) |= SPI_I2SCFGR_I2SE; /* enable I2S after configuration */
+
+}
+
+static void i2s_write(uint32_t i2s_base, uint16_t data)
+{
+	while (!(SPI_SR(i2s_base) & SPI_SR_TXE));
+	SPI_DR(i2s_base) = data;
 }
 
 int main(void)
 {
+	uint16_t data = 0;
 	gpio_clock_setup();
 	gpio_setup();
 	clock_setup();
@@ -124,6 +139,7 @@ int main(void)
 		/* Using API function gpio_toggle(): */
 		gpio_toggle(GPIOA, GPIO5);	/* LED on/off */
 		console_puts("Console test program\n");
+		i2s_write(SPI2, data++);
 		msleep(500);
 	}
 
