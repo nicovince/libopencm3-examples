@@ -28,6 +28,8 @@
 #include "clock.h"
 #include "console.h"
 
+#define SPI_SR_FRE (1 << 8)
+
 static void gpio_clock_setup(void)
 {
 	/* Enable GPIO clock for LED & Debug. */
@@ -106,7 +108,6 @@ static void i2s_setup(void)
 	const uint8_t odd = 1;
 	uint32_t plli2sn = 192;
 	uint32_t  plli2sr = 2;
-	char dbg_buf[128];
 
 	/* WS: Word select on NSS pin
 	 * SD: Serial Data on MOSI pin
@@ -173,10 +174,6 @@ static void i2s_setup(void)
 		       SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT, 0 /* pcmsync */,
 		       SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED, 0 /* ckpol */,
 		       SPI_I2SCFGR_DATLEN_16BIT, 0 /* chlen */);
-	snprintf(dbg_buf, sizeof(dbg_buf), "I2S2_ext: I2SCFGR: %08lX\n", SPI_I2SCFGR(I2S2_EXT_BASE));
-	console_puts(dbg_buf);
-	snprintf(dbg_buf, sizeof(dbg_buf), "SPI2: I2SCFGR: %08lX\n", SPI_I2SCFGR(SPI2));
-	console_puts(dbg_buf);
 	spi_enable_tx_buffer_empty_interrupt(SPI2);
 	spi_enable_error_interrupt(SPI2);
 	spi_enable_rx_buffer_not_empty_interrupt(SPI2);
@@ -196,10 +193,27 @@ void spi2_isr(void)
 	}
 
 	if (sr & SPI_SR_RXNE) {
+		rx_data = SPI_DR(spi_base);
 		dbg_set();
+	}
+
+	if (sr & SPI_SR_OVR) {
+		dbg_set();
+	}
+
+	if (sr & SPI_SR_UDR) {
+		dbg_set();
+	}
+
+	if (sr & SPI_SR_FRE) {
+		dbg_set();
+	}
+
+	spi_base = I2S2_EXT_BASE;
+	sr = SPI_SR(spi_base);
+	if (sr & SPI_SR_RXNE) {
 		rx_data = SPI_DR(spi_base);
 	}
-	// TODO : handle i2s error
 	rx_data = rx_data;
 	dbg_clear();
 }
@@ -213,6 +227,7 @@ __attribute__((unused)) static void i2s_write(uint32_t i2s_base, uint16_t data)
 
 int main(void)
 {
+
 	gpio_clock_setup();
 	gpio_setup();
 	clock_setup();
@@ -226,8 +241,6 @@ int main(void)
 	while (1) {
 		/* Using API function gpio_toggle(): */
 		gpio_toggle(GPIOA, GPIO5);	/* LED on/off */
-		console_puts("Console test program\n");
-		//i2s_write(SPI2, data++);
 		msleep(500);
 	}
 
