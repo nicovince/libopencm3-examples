@@ -23,6 +23,7 @@
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/spi.h>
 #include <libopencm3/cm3/nvic.h>
+#include <stdio.h>
 
 #include "clock.h"
 #include "console.h"
@@ -105,6 +106,7 @@ static void i2s_setup(void)
 	const uint8_t odd = 1;
 	uint32_t plli2sn = 192;
 	uint32_t  plli2sr = 2;
+	char dbg_buf[128];
 
 	/* WS: Word select on NSS pin
 	 * SD: Serial Data on MOSI pin
@@ -160,21 +162,27 @@ static void i2s_setup(void)
 	nvic_enable_irq(NVIC_SPI2_IRQ);
 	rcc_periph_clock_enable(RCC_SPI2);
 
-	i2s_set_prescaler(SPI2, i2sdiv, odd);
 	i2s_set_prescaler(I2S2_EXT_BASE, i2sdiv, odd);
+	i2s_set_config(I2S2_EXT_BASE, 1 /* i2smod */,
+		       SPI_I2SCFGR_I2SCFG_SLAVE_RECEIVE, 0 /* pcmsync */,
+		       SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED, 0 /* ckpol */,
+		       SPI_I2SCFGR_DATLEN_16BIT, 0 /* chlen */);
+
+	i2s_set_prescaler(SPI2, i2sdiv, odd);
 	i2s_set_config(SPI2, 1 /* i2smod */,
 		       SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT, 0 /* pcmsync */,
 		       SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED, 0 /* ckpol */,
 		       SPI_I2SCFGR_DATLEN_16BIT, 0 /* chlen */);
-	cr_temp = SPI_I2SCFGR_I2SMOD |
-		(SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED << SPI_I2SCFGR_I2SSTD_LSB) |
-		(SPI_I2SCFGR_DATLEN_16BIT << SPI_I2SCFGR_DATLEN_LSB) |
-		(SPI_I2SCFGR_I2SCFG_SLAVE_RECEIVE << SPI_I2SCFGR_I2SCFG_LSB);
+	snprintf(dbg_buf, sizeof(dbg_buf), "I2S2_ext: I2SCFGR: %08lX\n", SPI_I2SCFGR(I2S2_EXT_BASE));
+	console_puts(dbg_buf);
+	snprintf(dbg_buf, sizeof(dbg_buf), "SPI2: I2SCFGR: %08lX\n", SPI_I2SCFGR(SPI2));
+	console_puts(dbg_buf);
 	spi_enable_tx_buffer_empty_interrupt(SPI2);
 	spi_enable_error_interrupt(SPI2);
-	//SPI_CR2(I2S2_EXT_BASE) = cr_temp;
+	spi_enable_rx_buffer_not_empty_interrupt(SPI2);
+
+	i2s_enable(I2S2_EXT_BASE);
 	i2s_enable(SPI2);
-	//SPI_I2SCFGR(I2S2_EXT_BASE) |= SPI_I2SCFGR_I2SE; /* enable I2S after configuration */
 }
 
 void spi2_isr(void)
@@ -182,16 +190,17 @@ void spi2_isr(void)
 	uint32_t spi_base = SPI2;
 	uint32_t sr = SPI_SR(spi_base);
 	static uint16_t tx_data = 0;
-	//uint32_t rx_data;
+	uint32_t rx_data;
 	if (sr & SPI_SR_TXE) {
-		dbg_set();
 		SPI_DR(spi_base) = tx_data++;
 	}
 
-	/*if (sr & SPI_SR_RXNE) {
+	if (sr & SPI_SR_RXNE) {
+		dbg_set();
 		rx_data = SPI_DR(spi_base);
-	}*/
-	//rx_data = rx_data;
+	}
+	// TODO : handle i2s error
+	rx_data = rx_data;
 	dbg_clear();
 }
 
@@ -200,6 +209,7 @@ __attribute__((unused)) static void i2s_write(uint32_t i2s_base, uint16_t data)
 	while (!(SPI_SR(i2s_base) & SPI_SR_TXE));
 	SPI_DR(i2s_base) = data;
 }
+
 
 int main(void)
 {
