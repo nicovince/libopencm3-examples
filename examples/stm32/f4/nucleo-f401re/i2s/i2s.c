@@ -22,14 +22,16 @@
 #include <libopencm3/stm32/rcc.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/spi.h>
+#include <libopencm3/cm3/nvic.h>
 
 #include "clock.h"
 #include "console.h"
 
 static void gpio_clock_setup(void)
 {
-	/* Enable GPIOA clock for LED & USARTs. */
+	/* Enable GPIO clock for LED & Debug. */
 	rcc_periph_clock_enable(RCC_GPIOA);
+	rcc_periph_clock_enable(RCC_GPIOC);
 }
 
 static void gpio_setup(void)
@@ -38,14 +40,71 @@ static void gpio_setup(void)
 	/* Set GPIO5 (in GPIO port A) to 'output push-pull'. */
 	gpio_mode_setup(GPIOA, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO5);
 
+	gpio_mode_setup(GPIOC, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO3);
+	gpio_set_output_options(GPIOC, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ, GPIO3);
+
+}
+
+static void dbg_set(void)
+{
+	gpio_set(GPIOC, GPIO3);
+}
+static void dbg_clear(void)
+{
+	gpio_clear(GPIOC, GPIO3);
+}
+
+static void i2s_set_prescaler(uint32_t spi, uint8_t i2sdiv, uint8_t odd)
+{
+	uint32_t tmp;
+	tmp = i2sdiv;
+	if (odd) {
+		tmp |= SPI_I2SPR_ODD;
+	}
+	SPI_I2SPR(spi) = tmp;
+}
+
+static void i2s_enable(uint32_t spi)
+{
+	SPI_I2SCFGR(spi) |= SPI_I2SCFGR_I2SE;
+}
+
+static void i2s_set_config(uint32_t spi, uint8_t i2smod, uint8_t i2scfg,
+                           uint8_t pcmsync, uint8_t i2sstd, uint8_t ckpol,
+                           uint8_t datlen, uint8_t chlen)
+{
+	uint32_t tmp = 0;
+	if (chlen) {
+		tmp |= SPI_I2SCFGR_CHLEN;
+	}
+
+	tmp |= (datlen & 0x3) << SPI_I2SCFGR_DATLEN_LSB;
+
+	if (ckpol) {
+		tmp |= SPI_I2SCFGR_CKPOL;
+	}
+
+	tmp |= (i2sstd & 0x3) << SPI_I2SCFGR_I2SSTD_LSB;
+
+	if (pcmsync) {
+		tmp |= SPI_I2SCFGR_PCMSYNC;
+	}
+
+	tmp |= (i2scfg & 0x3) << SPI_I2SCFGR_I2SCFG_LSB;
+
+	if (i2smod) {
+		tmp |= SPI_I2SCFGR_I2SMOD;
+	}
+	SPI_I2SCFGR(spi) = tmp;
 }
 
 static void i2s_setup(void)
 {
-    uint32_t cr_temp;
-    const uint32_t i2sdiv = 187;
-    uint32_t plli2sn = 192;
-    uint32_t  plli2sr = 2;
+	uint32_t cr_temp;
+	const uint8_t i2sdiv = 187;
+	const uint8_t odd = 1;
+	uint32_t plli2sn = 192;
+	uint32_t  plli2sr = 2;
 
 	/* WS: Word select on NSS pin
 	 * SD: Serial Data on MOSI pin
@@ -97,28 +156,46 @@ static void i2s_setup(void)
 	/* I2S2 as master */
 	gpio_set_output_options(GPIOB, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ,
 	                        GPIO12 | GPIO13 | GPIO15);
+
+	nvic_enable_irq(NVIC_SPI2_IRQ);
 	rcc_periph_clock_enable(RCC_SPI2);
 
-	cr_temp = (i2sdiv & 0xFF) | SPI_I2SPR_ODD;
-	SPI_I2SPR(SPI2) = cr_temp;
-	SPI_I2SPR(I2S2_EXT_BASE) = cr_temp;
+	i2s_set_prescaler(SPI2, i2sdiv, odd);
+	i2s_set_prescaler(I2S2_EXT_BASE, i2sdiv, odd);
+	i2s_set_config(SPI2, 1 /* i2smod */,
+		       SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT, 0 /* pcmsync */,
+		       SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED, 0 /* ckpol */,
+		       SPI_I2SCFGR_DATLEN_16BIT, 0 /* chlen */);
 	cr_temp = SPI_I2SCFGR_I2SMOD |
 		(SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED << SPI_I2SCFGR_I2SSTD_LSB) |
 		(SPI_I2SCFGR_DATLEN_16BIT << SPI_I2SCFGR_DATLEN_LSB) |
-		(SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT << SPI_I2SCFGR_I2SCFG_LSB);
-	SPI_I2SCFGR(SPI2) = cr_temp;
-	SPI_I2SCFGR(I2S2_EXT_BASE) = cr_temp;
-	cr_temp = SPI_CR2_RXNEIE |
-		SPI_CR2_TXEIE |
-		SPI_CR2_ERRIE;
-	SPI_CR2(SPI2) = cr_temp;
-	SPI_CR2(I2S2_EXT_BASE) = cr_temp;
-	SPI_I2SCFGR(SPI2) |= SPI_I2SCFGR_I2SE; /* enable I2S after configuration */
-	SPI_I2SCFGR(I2S2_EXT_BASE) |= SPI_I2SCFGR_I2SE; /* enable I2S after configuration */
-
+		(SPI_I2SCFGR_I2SCFG_SLAVE_RECEIVE << SPI_I2SCFGR_I2SCFG_LSB);
+	spi_enable_tx_buffer_empty_interrupt(SPI2);
+	spi_enable_error_interrupt(SPI2);
+	//SPI_CR2(I2S2_EXT_BASE) = cr_temp;
+	i2s_enable(SPI2);
+	//SPI_I2SCFGR(I2S2_EXT_BASE) |= SPI_I2SCFGR_I2SE; /* enable I2S after configuration */
 }
 
-static void i2s_write(uint32_t i2s_base, uint16_t data)
+void spi2_isr(void)
+{
+	uint32_t spi_base = SPI2;
+	uint32_t sr = SPI_SR(spi_base);
+	static uint16_t tx_data = 0;
+	//uint32_t rx_data;
+	if (sr & SPI_SR_TXE) {
+		dbg_set();
+		SPI_DR(spi_base) = tx_data++;
+	}
+
+	/*if (sr & SPI_SR_RXNE) {
+		rx_data = SPI_DR(spi_base);
+	}*/
+	//rx_data = rx_data;
+	dbg_clear();
+}
+
+__attribute__((unused)) static void i2s_write(uint32_t i2s_base, uint16_t data)
 {
 	while (!(SPI_SR(i2s_base) & SPI_SR_TXE));
 	SPI_DR(i2s_base) = data;
@@ -126,20 +203,21 @@ static void i2s_write(uint32_t i2s_base, uint16_t data)
 
 int main(void)
 {
-	uint16_t data = 0;
 	gpio_clock_setup();
 	gpio_setup();
 	clock_setup();
 	console_setup(115200);
 
+	console_puts("Setup i2s\n");
 	i2s_setup();
+	console_puts("start main loop\n");
 
 	/* Blink the LED on the board and print message. */
 	while (1) {
 		/* Using API function gpio_toggle(): */
 		gpio_toggle(GPIOA, GPIO5);	/* LED on/off */
 		console_puts("Console test program\n");
-		i2s_write(SPI2, data++);
+		//i2s_write(SPI2, data++);
 		msleep(500);
 	}
 
