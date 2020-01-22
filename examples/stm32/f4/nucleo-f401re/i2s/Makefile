@@ -17,7 +17,7 @@
 ## along with this library.  If not, see <http://www.gnu.org/licenses/>.
 ##
 
-OBJS = clock.o console.o
+OBJS = clock.o console.o fifo.o
 BINARY = i2s
 
 LDSCRIPT = ../nucleo-f401re.ld

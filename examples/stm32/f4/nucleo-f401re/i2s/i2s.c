@@ -27,8 +27,15 @@
 
 #include "clock.h"
 #include "console.h"
+#include "fifo.h"
 
 #define SPI_SR_FRE (1 << 8)
+#define I2S_BUF_SIZE 256
+#define I2S_ARRAY_SIZE I2S_BUF_SIZE*2
+
+fifo_t i2s2_rx, i2s2_tx;
+uint8_t i2s2_data_rx[I2S_ARRAY_SIZE];
+uint8_t i2s2_data_tx[I2S_ARRAY_SIZE];
 
 static void gpio_clock_setup(void)
 {
@@ -189,7 +196,11 @@ void spi2_isr(void)
 	static uint16_t tx_data = 0;
 	uint32_t rx_data;
 	if (sr & SPI_SR_TXE) {
-		SPI_DR(spi_base) = tx_data++;
+		if ((I2S_ARRAY_SIZE - size_available(&i2s2_tx)) >= 2)
+		{
+			tx_data = pop16(&i2s2_tx);
+		}
+		SPI_DR(spi_base) = tx_data;
 	}
 
 	if (sr & SPI_SR_RXNE) {
@@ -213,6 +224,9 @@ void spi2_isr(void)
 	sr = SPI_SR(spi_base);
 	if (sr & SPI_SR_RXNE) {
 		rx_data = SPI_DR(spi_base);
+		if (size_available(&i2s2_rx) >= 2) {
+			push16(&i2s2_rx, rx_data);
+		}
 	}
 	rx_data = rx_data;
 	dbg_clear();
@@ -224,9 +238,9 @@ __attribute__((unused)) static void i2s_write(uint32_t i2s_base, uint16_t data)
 	SPI_DR(i2s_base) = data;
 }
 
-
 int main(void)
 {
+
 
 	gpio_clock_setup();
 	gpio_setup();
@@ -236,6 +250,9 @@ int main(void)
 	console_puts("Setup i2s\n");
 	i2s_setup();
 	console_puts("start main loop\n");
+
+	init_fifo(&i2s2_rx, i2s2_data_rx, I2S_ARRAY_SIZE);
+	init_fifo(&i2s2_tx, i2s2_data_tx, I2S_ARRAY_SIZE);
 
 	/* Blink the LED on the board and print message. */
 	while (1) {
