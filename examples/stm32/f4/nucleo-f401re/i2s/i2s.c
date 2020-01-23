@@ -263,9 +263,15 @@ __attribute__((unused)) static size_t i2s_read(fifo16_t * fifo_ptr, uint16_t * d
 int main(void)
 {
 	uint16_t tx_data[2*I2S_BUF_SIZE];
+	uint16_t rx_data[2*I2S_BUF_SIZE];
 	size_t tx_size;
+	size_t rx_size;
+	size_t rx_received_cnt = 0;
 	size_t cur_idx = 0;
 	char dbg_buf[128];
+	uint32_t cur_time;
+	uint32_t last_time;
+
 
 	for (int i = 0; i < 2*I2S_BUF_SIZE; ++i) {
 		tx_data[i] = 0xF000 + i;
@@ -283,15 +289,27 @@ int main(void)
 	init_fifo16(&i2s2_rx, i2s2_data_rx, I2S_BUF_SIZE);
 	init_fifo16(&i2s2_tx, i2s2_data_tx, I2S_BUF_SIZE);
 
-	/* Blink the LED on the board and print message. */
+	last_time = mtime();
 	while (1) {
 		gpio_toggle(GPIOA, GPIO5);	/* LED on/off */
+
 		tx_size = i2s_write(&i2s2_tx, &tx_data[cur_idx],
 		                    sizeof(tx_data)/sizeof(tx_data[0]) - cur_idx);
 		cur_idx += tx_size;
 		if (cur_idx == (sizeof(tx_data)/sizeof(tx_data[0])))
 		{
 			cur_idx = 0;
+		}
+
+		rx_size = i2s_read(&i2s2_rx, rx_data, I2S_BUF_SIZE);
+		rx_received_cnt += rx_size;
+		cur_time = mtime();
+		if ((cur_time - last_time) >= 5*1000) {
+			snprintf(dbg_buf, sizeof(dbg_buf),
+			         "received %d samples in 5 seconds\n", rx_received_cnt);
+			console_puts(dbg_buf);
+			last_time = cur_time;
+			rx_received_cnt = 0;
 		}
 		//snprintf(dbg_buf, sizeof(dbg_buf), "written %d bytes into tx fifo\n", tx_size);
 		//console_puts(dbg_buf);

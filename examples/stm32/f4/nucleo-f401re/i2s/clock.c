@@ -64,7 +64,6 @@ void clock_setup(void)
 {
 	/* Base board frequency, set to 84Mhz */
 	rcc_clock_setup_pll(&rcc_hsi_configs[RCC_CLOCK_3V3_84MHZ]);
-	gpio_toggle(GPIOA, GPIO5);
 
 	/* clock rate / 84000 to get 1mS interrupt rate */
 	systick_set_reload(84000);
