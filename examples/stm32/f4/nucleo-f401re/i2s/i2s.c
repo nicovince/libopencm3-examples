@@ -193,7 +193,7 @@ void spi2_isr(void)
 {
 	uint32_t spi_base = SPI2;
 	uint32_t sr = SPI_SR(spi_base);
-	static uint16_t tx_data = 0;
+	uint16_t tx_data = 0;
 	uint32_t rx_data;
 	if (sr & SPI_SR_TXE) {
 		if ((I2S_ARRAY_SIZE - size_available(&i2s2_tx)) >= 2)
@@ -232,15 +232,41 @@ void spi2_isr(void)
 	dbg_clear();
 }
 
-__attribute__((unused)) static void i2s_write(uint32_t i2s_base, uint16_t data)
+static size_t i2s_write(fifo_t *fifo_ptr, uint16_t *data, size_t size)
 {
-	while (!(SPI_SR(i2s_base) & SPI_SR_TXE));
-	SPI_DR(i2s_base) = data;
+	size_t wr_size = 0;
+	while (size > 0) {
+		if (is_full(fifo_ptr))
+		{
+			break;
+		}
+		push16(fifo_ptr, data[wr_size++]);
+		size--;
+	}
+
+	return wr_size;
+}
+
+__attribute__((unused)) static size_t i2s_read(fifo_t * fifo_ptr, uint16_t * data, size_t size)
+{
+	size_t rd_size = 0;
+	while (size > 0) {
+		if (is_empty(fifo_ptr)) {
+			break;
+		}
+		data[rd_size++] = pop16(fifo_ptr);
+		size--;
+	}
+
+	return rd_size;
 }
 
 int main(void)
 {
 
+	uint16_t tx_data = 0;
+	size_t tx_size;
+	char dbg_buf[128];
 
 	gpio_clock_setup();
 	gpio_setup();
@@ -258,6 +284,10 @@ int main(void)
 	while (1) {
 		/* Using API function gpio_toggle(): */
 		gpio_toggle(GPIOA, GPIO5);	/* LED on/off */
+		tx_size = i2s_write(&i2s2_tx, &tx_data, 1);
+		snprintf(dbg_buf, sizeof(dbg_buf), "written %d bytes into tx fifo\n", tx_size);
+		console_puts(dbg_buf);
+		tx_data++;
 		msleep(500);
 	}
 

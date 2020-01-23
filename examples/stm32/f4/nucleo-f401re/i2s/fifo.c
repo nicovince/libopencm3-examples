@@ -67,6 +67,20 @@ size_t size_available(fifo_t * fifo_ptr)
 	}
 }
 
+size_t size_available16(fifo_t * fifo_ptr)
+{
+	return size_available(fifo_ptr) / 2;
+}
+
+size_t fifo_level(fifo_t * fifo_ptr)
+{
+	return fifo_ptr->size - size_available(fifo_ptr);
+}
+
+size_t fifo_level16(fifo_t * fifo_ptr)
+{
+	return fifo_level(fifo_ptr) / 2;
+}
 
 void flush(fifo_t *fifo_ptr)
 {
