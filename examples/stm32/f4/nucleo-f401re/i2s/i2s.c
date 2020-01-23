@@ -264,7 +264,7 @@ int main(void)
 {
 	uint16_t tx_data[2*I2S_BUF_SIZE];
 	size_t tx_size;
-	size_t tx_size_total;
+	size_t cur_idx = 0;
 	char dbg_buf[128];
 
 	for (int i = 0; i < 2*I2S_BUF_SIZE; ++i) {
@@ -286,12 +286,12 @@ int main(void)
 	/* Blink the LED on the board and print message. */
 	while (1) {
 		gpio_toggle(GPIOA, GPIO5);	/* LED on/off */
-		tx_size_total = 0;
-		tx_size = i2s_write(&i2s2_tx, tx_data, sizeof(tx_data)/sizeof(tx_data[0]));
-		while (tx_size_total != (sizeof(tx_data)/sizeof(tx_data[0])))
+		tx_size = i2s_write(&i2s2_tx, &tx_data[cur_idx],
+		                    sizeof(tx_data)/sizeof(tx_data[0]) - cur_idx);
+		cur_idx += tx_size;
+		if (cur_idx == (sizeof(tx_data)/sizeof(tx_data[0])))
 		{
-			tx_size = i2s_write(&i2s2_tx, &tx_data[tx_size_total], sizeof(tx_data)/sizeof(tx_data[0]) - tx_size_total);
-			tx_size_total += tx_size;
+			cur_idx = 0;
 		}
 		//snprintf(dbg_buf, sizeof(dbg_buf), "written %d bytes into tx fifo\n", tx_size);
 		//console_puts(dbg_buf);
