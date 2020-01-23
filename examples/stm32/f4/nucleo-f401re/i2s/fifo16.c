@@ -1,17 +1,17 @@
-#include "fifo.h"
+#include "fifo16.h"
 #include <string.h>
 
-void init_fifo(fifo_t * fifo_ptr, uint8_t *array, size_t size)
+void init_fifo16(fifo16_t * fifo_ptr, uint16_t *array, size_t size)
 {
 	// Clear struct
-	memset(fifo_ptr, 0, sizeof(fifo_t));
+	memset(fifo_ptr, 0, sizeof(fifo16_t));
 	// Clear data array
-	memset(array, 0, size);
+	memset(array, 0, size * sizeof(array[0]));
 	fifo_ptr->array = array;
 	fifo_ptr->size = size;
 }
 
-void push(fifo_t *fifo_ptr, uint8_t data)
+void push16(fifo16_t *fifo_ptr, uint16_t data)
 {
 	size_t next = (fifo_ptr->head + 1) % fifo_ptr->size;
 
@@ -22,9 +22,9 @@ void push(fifo_t *fifo_ptr, uint8_t data)
 	}
 }
 
-uint8_t pop(fifo_t *fifo_ptr)
+uint16_t pop16(fifo16_t *fifo_ptr)
 {
-	uint8_t ret = 0;
+	uint16_t ret = 0;
 	if (fifo_ptr->head != fifo_ptr->tail)
 	{
 		ret = fifo_ptr->array[fifo_ptr->tail];
@@ -33,17 +33,17 @@ uint8_t pop(fifo_t *fifo_ptr)
 	return ret;
 }
 
-uint8_t is_full(fifo_t * fifo_ptr)
+uint8_t is_full16(fifo16_t * fifo_ptr)
 {
 	return (((fifo_ptr->head + 1) % fifo_ptr->size) == fifo_ptr->tail);
 }
 
-uint8_t is_empty(fifo_t * fifo_ptr)
+uint8_t is_empty16(fifo16_t * fifo_ptr)
 {
 	return (fifo_ptr->head == fifo_ptr->tail);
 }
 
-size_t size_available(fifo_t * fifo_ptr)
+size_t size_available16(fifo16_t * fifo_ptr)
 {
 	if (fifo_ptr->head >= fifo_ptr->tail) {
 		return fifo_ptr->size - fifo_ptr->head + fifo_ptr->tail;
@@ -52,14 +52,8 @@ size_t size_available(fifo_t * fifo_ptr)
 	}
 }
 
-size_t fifo_level(fifo_t * fifo_ptr)
+size_t fifo_level16(fifo16_t * fifo_ptr)
 {
-	return fifo_ptr->size - size_available(fifo_ptr);
-}
-
-void flush(fifo_t *fifo_ptr)
-{
-	fifo_ptr->head = 0;
-	fifo_ptr->tail = 0;
+	return fifo_ptr->size - size_available16(fifo_ptr);
 }
 

@@ -27,15 +27,14 @@
 
 #include "clock.h"
 #include "console.h"
-#include "fifo.h"
+#include "fifo16.h"
 
 #define SPI_SR_FRE (1 << 8)
 #define I2S_BUF_SIZE 256
-#define I2S_ARRAY_SIZE I2S_BUF_SIZE*2
 
-fifo_t i2s2_rx, i2s2_tx;
-uint8_t i2s2_data_rx[I2S_ARRAY_SIZE];
-uint8_t i2s2_data_tx[I2S_ARRAY_SIZE];
+fifo16_t i2s2_rx, i2s2_tx;
+uint16_t i2s2_data_rx[I2S_BUF_SIZE];
+uint16_t i2s2_data_tx[I2S_BUF_SIZE];
 
 static void gpio_clock_setup(void)
 {
@@ -173,13 +172,13 @@ static void i2s_setup(void)
 	i2s_set_prescaler(I2S2_EXT_BASE, i2sdiv, odd);
 	i2s_set_config(I2S2_EXT_BASE, 1 /* i2smod */,
 		       SPI_I2SCFGR_I2SCFG_SLAVE_RECEIVE, 0 /* pcmsync */,
-		       SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED, 0 /* ckpol */,
+		       SPI_I2SCFGR_I2SSTD_I2S_PHILIPS, 0 /* ckpol */,
 		       SPI_I2SCFGR_DATLEN_16BIT, 0 /* chlen */);
 
 	i2s_set_prescaler(SPI2, i2sdiv, odd);
 	i2s_set_config(SPI2, 1 /* i2smod */,
 		       SPI_I2SCFGR_I2SCFG_MASTER_TRANSMIT, 0 /* pcmsync */,
-		       SPI_I2SCFGR_I2SSTD_MSB_JUSTIFIED, 0 /* ckpol */,
+		       SPI_I2SCFGR_I2SSTD_I2S_PHILIPS, 0 /* ckpol */,
 		       SPI_I2SCFGR_DATLEN_16BIT, 0 /* chlen */);
 	spi_enable_tx_buffer_empty_interrupt(SPI2);
 	spi_enable_error_interrupt(SPI2);
@@ -196,7 +195,7 @@ void spi2_isr(void)
 	uint16_t tx_data = 0;
 	uint32_t rx_data;
 	if (sr & SPI_SR_TXE) {
-		if ((I2S_ARRAY_SIZE - size_available(&i2s2_tx)) >= 2)
+		if (!is_empty16(&i2s2_tx))
 		{
 			tx_data = pop16(&i2s2_tx);
 		}
@@ -224,7 +223,7 @@ void spi2_isr(void)
 	sr = SPI_SR(spi_base);
 	if (sr & SPI_SR_RXNE) {
 		rx_data = SPI_DR(spi_base);
-		if (size_available(&i2s2_rx) >= 2) {
+		if (size_available16(&i2s2_rx) >= 2) {
 			push16(&i2s2_rx, rx_data);
 		}
 	}
@@ -232,11 +231,11 @@ void spi2_isr(void)
 	dbg_clear();
 }
 
-static size_t i2s_write(fifo_t *fifo_ptr, uint16_t *data, size_t size)
+static size_t i2s_write(fifo16_t *fifo_ptr, uint16_t *data, size_t size)
 {
 	size_t wr_size = 0;
 	while (size > 0) {
-		if (is_full(fifo_ptr))
+		if (is_full16(fifo_ptr))
 		{
 			break;
 		}
@@ -247,11 +246,11 @@ static size_t i2s_write(fifo_t *fifo_ptr, uint16_t *data, size_t size)
 	return wr_size;
 }
 
-__attribute__((unused)) static size_t i2s_read(fifo_t * fifo_ptr, uint16_t * data, size_t size)
+__attribute__((unused)) static size_t i2s_read(fifo16_t * fifo_ptr, uint16_t * data, size_t size)
 {
 	size_t rd_size = 0;
 	while (size > 0) {
-		if (is_empty(fifo_ptr)) {
+		if (is_empty16(fifo_ptr)) {
 			break;
 		}
 		data[rd_size++] = pop16(fifo_ptr);
@@ -263,10 +262,13 @@ __attribute__((unused)) static size_t i2s_read(fifo_t * fifo_ptr, uint16_t * dat
 
 int main(void)
 {
-
-	uint16_t tx_data = 0;
+	uint16_t tx_data[2*I2S_BUF_SIZE];
 	size_t tx_size;
 	char dbg_buf[128];
+
+	for (int i = 0; i < 2*I2S_BUF_SIZE; ++i) {
+		tx_data[i] = 0xF000 + i;
+	}
 
 	gpio_clock_setup();
 	gpio_setup();
@@ -277,18 +279,16 @@ int main(void)
 	i2s_setup();
 	console_puts("start main loop\n");
 
-	init_fifo(&i2s2_rx, i2s2_data_rx, I2S_ARRAY_SIZE);
-	init_fifo(&i2s2_tx, i2s2_data_tx, I2S_ARRAY_SIZE);
+	init_fifo16(&i2s2_rx, i2s2_data_rx, I2S_BUF_SIZE);
+	init_fifo16(&i2s2_tx, i2s2_data_tx, I2S_BUF_SIZE);
 
 	/* Blink the LED on the board and print message. */
 	while (1) {
 		/* Using API function gpio_toggle(): */
 		gpio_toggle(GPIOA, GPIO5);	/* LED on/off */
-		tx_size = i2s_write(&i2s2_tx, &tx_data, 1);
-		snprintf(dbg_buf, sizeof(dbg_buf), "written %d bytes into tx fifo\n", tx_size);
-		console_puts(dbg_buf);
-		tx_data++;
-		msleep(500);
+		tx_size = i2s_write(&i2s2_tx, tx_data, sizeof(tx_data)/sizeof(tx_data[0]));
+		//snprintf(dbg_buf, sizeof(dbg_buf), "written %d bytes into tx fifo\n", tx_size);
+		//console_puts(dbg_buf);
 	}
 
 	return 0;
