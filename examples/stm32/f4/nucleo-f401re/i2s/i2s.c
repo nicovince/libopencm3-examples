@@ -33,8 +33,11 @@
 #define I2S_BUF_SIZE 256
 
 fifo16_t i2s2_rx, i2s2_tx;
+fifo16_t i2s3_rx, i2s3_tx;
 uint16_t i2s2_data_rx[I2S_BUF_SIZE];
 uint16_t i2s2_data_tx[I2S_BUF_SIZE];
+uint16_t i2s3_data_rx[I2S_BUF_SIZE];
+uint16_t i2s3_data_tx[I2S_BUF_SIZE];
 
 static void gpio_clock_setup(void)
 {
@@ -137,16 +140,6 @@ static void i2s_setup(void)
 	rcc_periph_clock_enable(RCC_GPIOC);
 	rcc_periph_clock_enable(RCC_GPIOB);
 
-	/* I2S3 */
-	gpio_mode_setup(GPIOC, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN,
-	                GPIO10 | GPIO11 | GPIO12);
-	gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN, GPIO4);
-	gpio_set_af(GPIOC, GPIO_AF6, GPIO12 | GPIO10);
-	gpio_set_af(GPIOC, GPIO_AF5, GPIO11);
-	gpio_set_af(GPIOA, GPIO_AF6, GPIO4);
-	//TODO: gpio_set_output_options(port, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ, gpios);
-	rcc_periph_clock_enable(RCC_SPI3);
-
 	/* configure PLLI2S */
 	cr_temp = ((plli2sn & RCC_PLLI2SCFGR_PLLI2SN_MASK) << RCC_PLLI2SCFGR_PLLI2SN_SHIFT
 	           | (plli2sr & RCC_PLLI2SCFGR_PLLI2SR_MASK) << RCC_PLLI2SCFGR_PLLI2SR_SHIFT);
@@ -156,6 +149,30 @@ static void i2s_setup(void)
 
 	RCC_CFGR &= ~RCC_CFGR_I2SSRC;
 
+	/* I2S3 */
+	gpio_mode_setup(GPIOC, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN,
+	                GPIO10 | GPIO11 | GPIO12);
+	gpio_mode_setup(GPIOA, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN, GPIO4);
+	gpio_set_af(GPIOC, GPIO_AF6, GPIO12 | GPIO10);
+	gpio_set_af(GPIOC, GPIO_AF5, GPIO11);
+	gpio_set_af(GPIOA, GPIO_AF6, GPIO4);
+	gpio_set_output_options(GPIOC, GPIO_OTYPE_PP, GPIO_OSPEED_25MHZ, GPIO12);
+	nvic_enable_irq(NVIC_SPI3_IRQ);
+	rcc_periph_clock_enable(RCC_SPI3);
+	i2s_set_config(I2S3_EXT_BASE, 1 /* i2smod */,
+		       SPI_I2SCFGR_I2SCFG_SLAVE_RECEIVE, 0 /* pcmsync */,
+		       SPI_I2SCFGR_I2SSTD_I2S_PHILIPS, 0 /* ckpol */,
+		       SPI_I2SCFGR_DATLEN_16BIT, 0 /* chlen */);
+	i2s_set_config(SPI3, 1 /* i2smod */,
+		       SPI_I2SCFGR_I2SCFG_SLAVE_TRANSMIT, 0 /* pcmsync */,
+		       SPI_I2SCFGR_I2SSTD_I2S_PHILIPS, 0 /* ckpol */,
+		       SPI_I2SCFGR_DATLEN_16BIT, 0 /* chlen */);
+	spi_enable_tx_buffer_empty_interrupt(SPI3);
+	spi_enable_error_interrupt(SPI3);
+	spi_enable_rx_buffer_not_empty_interrupt(SPI3);
+
+	i2s_enable(I2S3_EXT_BASE);
+	i2s_enable(SPI3);
 
 	/* I2S2 */
 	gpio_mode_setup(GPIOB, GPIO_MODE_AF, GPIO_PUPD_PULLDOWN,
@@ -188,16 +205,15 @@ static void i2s_setup(void)
 	i2s_enable(SPI2);
 }
 
-void spi2_isr(void)
+static void spix_isr(uint32_t spi_base, uint32_t i2s_ext_base, fifo16_t * tx, fifo16_t * rx)
 {
-	uint32_t spi_base = SPI2;
 	uint32_t sr = SPI_SR(spi_base);
 	uint16_t tx_data = 0;
 	uint32_t rx_data;
 	if (sr & SPI_SR_TXE) {
-		if (!is_empty16(&i2s2_tx))
+		if (!is_empty16(tx))
 		{
-			tx_data = pop16(&i2s2_tx);
+			tx_data = pop16(tx);
 		}
 		SPI_DR(spi_base) = tx_data;
 	}
@@ -219,16 +235,23 @@ void spi2_isr(void)
 		dbg_set();
 	}
 
-	spi_base = I2S2_EXT_BASE;
-	sr = SPI_SR(spi_base);
+	sr = SPI_SR(i2s_ext_base);
 	if (sr & SPI_SR_RXNE) {
-		rx_data = SPI_DR(spi_base);
-		if (size_available16(&i2s2_rx) >= 2) {
-			push16(&i2s2_rx, rx_data);
+		rx_data = SPI_DR(i2s_ext_base);
+		if (size_available16(rx) >= 2) {
+			push16(rx, rx_data);
 		}
 	}
-	rx_data = rx_data;
 	dbg_clear();
+}
+
+void spi2_isr(void)
+{
+	spix_isr(SPI2, I2S2_EXT_BASE, &i2s2_tx, &i2s2_rx);
+}
+void spi3_isr(void)
+{
+	spix_isr(SPI3, I2S3_EXT_BASE, &i2s3_tx, &i2s3_rx);
 }
 
 static size_t i2s_write(fifo16_t *fifo_ptr, uint16_t *data, size_t size)
@@ -262,19 +285,25 @@ __attribute__((unused)) static size_t i2s_read(fifo16_t * fifo_ptr, uint16_t * d
 
 int main(void)
 {
-	uint16_t tx_data[2*I2S_BUF_SIZE];
-	uint16_t rx_data[2*I2S_BUF_SIZE];
-	size_t tx_size;
-	size_t rx_size;
-	size_t rx_received_cnt = 0;
-	size_t cur_idx = 0;
+	uint16_t tx2_data[2*I2S_BUF_SIZE];
+	uint16_t tx3_data[2*I2S_BUF_SIZE];
+	uint16_t rx2_data[2*I2S_BUF_SIZE];
+	uint16_t rx3_data[2*I2S_BUF_SIZE];
+	size_t tx2_size;
+	size_t tx3_size;
+	size_t rx2_size;
+	size_t rx3_size;
+	size_t rx2_received_cnt = 0;
+	size_t rx3_received_cnt = 0;
+	size_t cur_idx2 = 0;
+	size_t cur_idx3 = 0;
 	char dbg_buf[128];
 	uint32_t cur_time;
 	uint32_t last_time;
 
 
 	for (int i = 0; i < 2*I2S_BUF_SIZE; ++i) {
-		tx_data[i] = 0xF000 + i;
+		tx2_data[i] = 0xF000 + i;
 	}
 
 	gpio_clock_setup();
@@ -288,31 +317,41 @@ int main(void)
 
 	init_fifo16(&i2s2_rx, i2s2_data_rx, I2S_BUF_SIZE);
 	init_fifo16(&i2s2_tx, i2s2_data_tx, I2S_BUF_SIZE);
+	init_fifo16(&i2s3_rx, i2s3_data_rx, I2S_BUF_SIZE);
+	init_fifo16(&i2s3_tx, i2s3_data_tx, I2S_BUF_SIZE);
 
 	last_time = mtime();
 	while (1) {
 		gpio_toggle(GPIOA, GPIO5);	/* LED on/off */
 
-		tx_size = i2s_write(&i2s2_tx, &tx_data[cur_idx],
-		                    sizeof(tx_data)/sizeof(tx_data[0]) - cur_idx);
-		cur_idx += tx_size;
-		if (cur_idx == (sizeof(tx_data)/sizeof(tx_data[0])))
+		tx2_size = i2s_write(&i2s2_tx, &tx2_data[cur_idx2],
+		                    sizeof(tx2_data)/sizeof(tx2_data[0]) - cur_idx2);
+		cur_idx2 += tx2_size;
+		if (cur_idx2 == (sizeof(tx2_data)/sizeof(tx2_data[0])))
 		{
-			cur_idx = 0;
+			cur_idx2 = 0;
+		}
+		tx3_size = i2s_write(&i2s3_tx, &tx3_data[cur_idx3],
+		                    sizeof(tx3_data)/sizeof(tx3_data[0]) - cur_idx3);
+		cur_idx3 += tx3_size;
+		if (cur_idx3 == (sizeof(tx3_data)/sizeof(tx3_data[0])))
+		{
+			cur_idx3 = 0;
 		}
 
-		rx_size = i2s_read(&i2s2_rx, rx_data, I2S_BUF_SIZE);
-		rx_received_cnt += rx_size;
+		rx2_size = i2s_read(&i2s2_rx, rx2_data, I2S_BUF_SIZE);
+		rx2_received_cnt += rx2_size;
+		rx3_size = i2s_read(&i2s3_rx, rx3_data, I2S_BUF_SIZE);
+		rx3_received_cnt += rx3_size;
 		cur_time = mtime();
 		if ((cur_time - last_time) >= 5*1000) {
 			snprintf(dbg_buf, sizeof(dbg_buf),
-			         "received %d samples in 5 seconds\n", rx_received_cnt);
+			         "received %d on I2S2, %d on I2S3 samples in 5 seconds\n", rx2_received_cnt, rx3_received_cnt);
 			console_puts(dbg_buf);
 			last_time = cur_time;
-			rx_received_cnt = 0;
+			rx2_received_cnt = 0;
+			rx3_received_cnt = 0;
 		}
-		//snprintf(dbg_buf, sizeof(dbg_buf), "written %d bytes into tx fifo\n", tx_size);
-		//console_puts(dbg_buf);
 	}
 
 	return 0;
